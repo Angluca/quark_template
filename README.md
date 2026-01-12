@@ -10,7 +10,7 @@ Compile + run tests
 >make test-run  
 make test-run ARGS="--verbose"
 
-Shortcut for release build
+release build
 >make release  
 make run MODE=release  
 make test-run MODE=release

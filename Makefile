@@ -2,39 +2,43 @@
 QC := qc
 CC := gcc
 
-# Entry source
+# Entry
 MAIN ?= main
 MAIN_QK := src/$(MAIN).qk
 
-# Test directory
+# Tests
 TEST_DIR := tests
 
 # Quark library path
-QUARK_ROOT := $(QUARK_ROOT)
+QUARK_ROOT ?=
 
-# Default build mode is debug
+# Build mode and args
 MODE ?= debug
-
-# Default ARGS is empty
 ARGS ?=
 
-# Platform detection
-UNAME_S := $(shell uname -s 2>/dev/null)
+# Platform detect
 ifeq ($(OS),Windows_NT)
   PLATFORM := windows
-else ifeq ($(UNAME_S),Darwin)
-  PLATFORM := macos
 else
-  PLATFORM := linux
+  UNAME_S := $(shell uname -s)
+  ifeq ($(UNAME_S),Darwin)
+    PLATFORM := macos
+  else
+    PLATFORM := linux
+  endif
 endif
 
-# Executable suffix
+# Platform helpers
 ifeq ($(PLATFORM),windows)
   EXE := .exe
-  QC = $(QT)$(EXE)
+  QC = $(QC)$(EXE)
   CC = $(CC)$(EXE)
+  MKDIR = if not exist "$(1)" mkdir "$(1)"
+  RM_RF = if exist build rmdir /s /q build
 else
   EXE :=
+  MKDIR = mkdir -p "$(1)"
+  RM_RF = rm -rf build
 endif
 
 # Build flags
@@ -57,85 +61,73 @@ O_OUT := $(BUILD)/o
 T_OUT := $(BUILD)/tests
 TARGET := $(BUILD)/$(MAIN)$(EXE)
 
-# Flatten path helper
+# Helpers
 FLAT = $(subst /,__,$(basename $1))
 
-# Main generated files
+# Main files
 MAIN_C := $(C_OUT)/$(call FLAT,$(MAIN_QK)).c
 MAIN_O := $(O_OUT)/$(notdir $(MAIN_C:.c=.o))
 
-# Test sources (recursive and sorted)
-TEST_QK  := $(sort $(shell find $(TEST_DIR) -name '*.qk'))
+# Test files (portable glob)
+TEST_QK  := $(sort $(wildcard $(TEST_DIR)/*.qk))
 TEST_C   := $(foreach f,$(TEST_QK),$(C_OUT)/$(call FLAT,$(f)).c)
 TEST_O   := $(foreach f,$(TEST_C),$(O_OUT)/$(notdir $(f:.c=.o)))
 TEST_BIN := $(foreach f,$(TEST_QK),$(T_OUT)/$(call FLAT,$(f))$(EXE))
 
-# Default target
+# Default
 all: $(TARGET)
 
-# Run main program with ARGS
+# Run main
 run: $(TARGET)
 	$(TARGET) $(ARGS)
 
-# Link main executable
+# Link main
 $(TARGET): $(MAIN_O)
-	$(CC) $(MAIN_O) $(LDFLAGS) -o $@
+	$(call MKDIR,$(BUILD))
+	$(CC) $^ $(LDFLAGS) -o $@
 
-# Generate C from main qk
+# QK -> C (main)
 $(MAIN_C): $(MAIN_QK)
-	@mkdir -p $(C_OUT)
-	$(QC) $< -o $@ -l $(QUARK_ROOT)
+	$(call MKDIR,$(C_OUT))
+	$(QC) $< -o $@ -l "$(QUARK_ROOT)"
 
-# Compile C to object
-$(MAIN_O): $(MAIN_C)
-	@mkdir -p $(O_OUT)
-	$(CC) $(CFLAGS) -c $< -o $@
-
-# Generic C compilation rule
+# C -> O
 $(O_OUT)/%.o: $(C_OUT)/%.c
-	@mkdir -p $(O_OUT)
+	$(call MKDIR,$(O_OUT))
 	$(CC) $(CFLAGS) -c $< -o $@
 
-# Generate C from test qk
+# QK -> C (tests)
 define QK_TO_C
 $(C_OUT)/$(call FLAT,$(1)).c: $(1)
-	@mkdir -p $(C_OUT)
-	$(QC) $(1) -o $$@ -l $(QUARK_ROOT)
+	$(call MKDIR,$(C_OUT))
+	$(QC) $(1) -o $$@ -l "$(QUARK_ROOT)"
 endef
 $(foreach f,$(TEST_QK),$(eval $(call QK_TO_C,$(f))))
 
-# Link test executables
+# Link tests
 define TEST_LINK
 $(T_OUT)/$(call FLAT,$(1))$(EXE): $(O_OUT)/$(call FLAT,$(1)).o
-	@mkdir -p $(T_OUT)
+	$(call MKDIR,$(T_OUT))
 	$(CC) $$< $(LDFLAGS) -o $$@
 endef
 $(foreach f,$(TEST_QK),$(eval $(call TEST_LINK,$(f))))
 
-# Build tests only
+# Tests
 test: $(TEST_BIN)
 
-# Build and run tests with ARGS
 test-run: $(TEST_BIN)
-	@set -e; \
-	for t in $(TEST_BIN); do \
-	  echo "==> $$t"; \
-	  $$t $(ARGS); \
-	done
+	@$(foreach t,$(TEST_BIN),echo ==> $(t) && $(t) $(ARGS)$(newline))
 
-# ----------------------------
-# Shortcut targets for build modes
-# ----------------------------
-
+# Mode shortcuts
 release:
 	$(MAKE) MODE=release
 
 debug:
 	$(MAKE) MODE=debug
 
-# Remove all build artifacts
+# Clean
 clean:
-	rm -rf build
+	$(RM_RF)
 
 .PHONY: all run test test-run clean release debug
 
